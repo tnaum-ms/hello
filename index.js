@@ -802,7 +802,7 @@ const USABLE_START = BUFFER_START;
 const USABLE_END = TOTAL_COLS - BUFFER_END - 1; // 48
 const USABLE_COLS = USABLE_END - USABLE_START + 1; // 45
 
-const COMMITS_PER_PIXEL = 30;
+const DEFAULT_COMMITS_PER_PIXEL = 30;
 
 /**
  * Compute the Sunday that is the top-left corner of the contribution graph.
@@ -921,7 +921,7 @@ function textToGrid(text, large = false) {
 // ASCII preview
 // ---------------------------------------------------------------------------
 
-function printPreview(pixels, startSunday) {
+function printPreview(pixels, startSunday, commitsPerPixel) {
   const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const set = new Set(pixels.map((p) => `${p.col},${p.row}`));
 
@@ -956,8 +956,8 @@ function printPreview(pixels, startSunday) {
   const lastDate = gridToDate(lastPixel.col, lastPixel.row, startSunday);
 
   console.log(`  Lit pixels:     ${pixels.length}`);
-  console.log(`  Commits/pixel:  ${COMMITS_PER_PIXEL}`);
-  console.log(`  Total commits:  ${pixels.length * COMMITS_PER_PIXEL}`);
+  console.log(`  Commits/pixel:  ${commitsPerPixel}`);
+  console.log(`  Total commits:  ${pixels.length * commitsPerPixel}`);
   console.log(
     `  Date range:     ${formatDate(firstDate)} → ${formatDate(lastDate)}`
   );
@@ -971,7 +971,7 @@ function printPreview(pixels, startSunday) {
 // Commit generation
 // ---------------------------------------------------------------------------
 
-function generateCommits(pixels, startSunday) {
+function generateCommits(pixels, startSunday, commitsPerPixel) {
   const dataDir = path.join(__dirname, "data");
   const filePath = path.join(dataDir, "contributions.txt");
 
@@ -987,7 +987,7 @@ function generateCommits(pixels, startSunday) {
   });
 
   const totalDays = sorted.length;
-  const totalCommits = totalDays * COMMITS_PER_PIXEL;
+  const totalCommits = totalDays * commitsPerPixel;
   let commitsDone = 0;
 
   console.log(
@@ -1000,27 +1000,27 @@ function generateCommits(pixels, startSunday) {
     const dateStr = formatDate(date);
 
     process.stdout.write(
-      `  Day ${i + 1}/${totalDays}: ${dateStr} — ${COMMITS_PER_PIXEL} commits`
+      `  Day ${i + 1}/${totalDays}: ${dateStr} — ${commitsPerPixel} commits`
     );
 
-    for (let c = 0; c < COMMITS_PER_PIXEL; c++) {
+    for (let c = 0; c < commitsPerPixel; c++) {
       // Spread commits across the day (08:00 → ~22:00)
-      const hour = 8 + Math.floor((c * 14) / COMMITS_PER_PIXEL);
+      const hour = 8 + Math.floor((c * 14) / commitsPerPixel);
       const minute = Math.floor(
-        ((c * 14) % COMMITS_PER_PIXEL) * (60 / COMMITS_PER_PIXEL)
+        ((c * 14) % commitsPerPixel) * (60 / commitsPerPixel)
       );
       const gitDate = formatGitDate(date, hour, minute);
 
       // Append a line to the contributions file
       fs.appendFileSync(
         filePath,
-        `${dateStr} commit ${c + 1}/${COMMITS_PER_PIXEL}\n`
+        `${dateStr} commit ${c + 1}/${commitsPerPixel}\n`
       );
 
       // Create the commit with backdated author and committer dates
       execSync(`git add data/contributions.txt`, { cwd: __dirname });
       execSync(
-        `git commit -m "pixel: ${dateStr} (${c + 1}/${COMMITS_PER_PIXEL})"`,
+        `git commit -m "pixel: ${dateStr} (${c + 1}/${commitsPerPixel})"`,
         {
           cwd: __dirname,
           env: {
@@ -1066,11 +1066,21 @@ async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
   const large = args.includes("--large");
+  const commitsArg = args.find((a) => a.startsWith("--commits="));
+  const commitsPerPixel = commitsArg
+    ? parseInt(commitsArg.split("=")[1], 10)
+    : DEFAULT_COMMITS_PER_PIXEL;
+
+  if (isNaN(commitsPerPixel) || commitsPerPixel < 1) {
+    console.error("--commits must be a positive integer.");
+    process.exit(1);
+  }
+
   const textArgs = args.filter((a) => !a.startsWith("--"));
   const text = textArgs[0] || "HELLO";
 
   console.log(`\n  GitHub Contribution Graph Art Generator`);
-  console.log(`  Text: "${text}"${large ? " (large)" : ""}\n`);
+  console.log(`  Text: "${text}"${large ? " (large)" : ""}, ${commitsPerPixel} commits/pixel\n`);
 
   const startSunday = getGraphStartSunday();
   console.log(`  Graph start (top-left): ${formatDate(startSunday)} (Sunday)`);
@@ -1080,7 +1090,7 @@ async function main() {
     process.exit(1);
   }
 
-  printPreview(pixels, startSunday);
+  printPreview(pixels, startSunday, commitsPerPixel);
 
   if (dryRun) {
     console.log("  --dry-run: no commits created.\n");
@@ -1088,7 +1098,7 @@ async function main() {
   }
 
   const ok = await confirm(
-    `  Create ${pixels.length * COMMITS_PER_PIXEL} commits? [y/N] `
+    `  Create ${pixels.length * commitsPerPixel} commits? [y/N] `
   );
   if (!ok) {
     console.log("  Aborted.\n");
@@ -1096,7 +1106,7 @@ async function main() {
   }
 
   console.log();
-  generateCommits(pixels, startSunday);
+  generateCommits(pixels, startSunday, commitsPerPixel);
 }
 
 main().catch((err) => {
